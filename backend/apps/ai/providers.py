@@ -87,6 +87,54 @@ class OllamaProvider(BaseAIProvider):
         return MockAIProvider().generate_remediation(prompt, system_prompt)
 
 
+def _clean_json_text(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    return cleaned.strip()
+
+
+class GeminiProvider(BaseAIProvider):
+    """
+    Native Google Gemini provider supporting Gemini 1.5/2.0 models
+    using Google's official REST API with JSON schema mode.
+    """
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash"):
+        self.api_key = api_key
+        self.model = model
+
+    def generate_remediation(self, prompt: str, system_prompt: str) -> Dict[str, Any]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": f"{system_prompt}\n\n{prompt}"}]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.2,
+            }
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=45)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(_clean_json_text(text))
+            else:
+                logger.warning(f"Gemini API returned HTTP {resp.status_code}: {resp.text}")
+        except Exception as e:
+            logger.warning(f"Gemini provider failed: {e}. Falling back to MockAIProvider.")
+        return MockAIProvider().generate_remediation(prompt, system_prompt)
+
+
 class OpenAICompatibleProvider(BaseAIProvider):
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", model: str = "gpt-4o-mini"):
         self.api_key = api_key
@@ -113,7 +161,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
-                return json.loads(content)
+                return json.loads(_clean_json_text(content))
         except Exception as e:
             logger.warning(f"OpenAI provider failed: {e}. Falling back to MockAIProvider.")
         return MockAIProvider().generate_remediation(prompt, system_prompt)
@@ -121,16 +169,30 @@ class OpenAICompatibleProvider(BaseAIProvider):
 
 def get_ai_provider() -> BaseAIProvider:
     """Factory selecting configured AI provider based on environment."""
-    provider_type = os.environ.get("AI_PROVIDER", "mock").lower()
+    provider_type = os.environ.get("AI_PROVIDER", "").lower()
+
+    # 1. Google Gemini
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if provider_type in {"gemini", "google"} or (gemini_key and not provider_type):
+        key = gemini_key or os.environ.get("AI_API_KEY", "")
+        model = os.environ.get("GEMINI_MODEL") or os.environ.get("AI_MODEL", "gemini-1.5-flash")
+        if key:
+            return GeminiProvider(api_key=key, model=model)
+
+    # 2. OpenAI or custom OpenAI-compatible endpoint
+    openai_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_API_KEY")
+    if provider_type == "openai" or (openai_key and not provider_type):
+        base_url = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
+        model = os.environ.get("OPENAI_MODEL") or os.environ.get("AI_MODEL", "gpt-4o-mini")
+        if openai_key:
+            return OpenAICompatibleProvider(api_key=openai_key, base_url=base_url, model=model)
+
+    # 3. Local Ollama
     if provider_type == "ollama":
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         model = os.environ.get("OLLAMA_MODEL", "llama3.2")
         return OllamaProvider(host=host, model=model)
-    elif provider_type in {"openai", "gemini"}:
-        api_key = os.environ.get("AI_API_KEY", "")
-        base_url = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
-        model = os.environ.get("AI_MODEL", "gpt-4o-mini")
-        if api_key:
-            return OpenAICompatibleProvider(api_key=api_key, base_url=base_url, model=model)
 
+    # 4. Default high-fidelity deterministic offline provider
     return MockAIProvider()
+

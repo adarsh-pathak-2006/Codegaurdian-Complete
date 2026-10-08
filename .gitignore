@@ -28,3 +28,14 @@ htmlcov/
 # Temporary scans
 demo_target_repo/
 cg_scan_*/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+# Environment variables
+.env
+.env.*
+.env*.local
+!.env.example
+!**/.env.example

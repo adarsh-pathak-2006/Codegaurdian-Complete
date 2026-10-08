@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: codeguardian-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: codeguardian
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # ----------------------------------------------------------------------------
+  # Redis (Message Broker & Cache)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: codeguardian-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # ----------------------------------------------------------------------------
+  # Backend API Server (Django DRF)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: codeguardian-backend
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py seed_demo &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DEBUG: "True"
+      SECRET_KEY: "django-insecure-docker-secret-key-development"
+      DATABASE_URL: "postgres://postgres:postgrespassword@postgres:5432/codeguardian"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      CELERY_ALWAYS_EAGER: "False"
+      AI_PROVIDER: "gemini"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+    depends_on:
+      - postgres
+      - redis
+
+  # ----------------------------------------------------------------------------
+  # Celery Asynchronous Scan Worker
+  # ----------------------------------------------------------------------------
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: codeguardian-celery-worker
+    restart: unless-stopped
+    command: celery -A codeguardian worker -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      DEBUG: "True"
+      DATABASE_URL: "postgres://postgres:postgrespassword@postgres:5432/codeguardian"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      CELERY_ALWAYS_EAGER: "False"
+      AI_PROVIDER: "gemini"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+    depends_on:
+      - postgres
+      - redis
+      - backend
+
+  # ----------------------------------------------------------------------------
+  # Frontend UI (Next.js 16)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: codeguardian-frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

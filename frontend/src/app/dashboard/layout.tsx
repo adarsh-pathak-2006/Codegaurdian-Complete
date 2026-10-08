@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import Sidebar from '@/components/layout/Sidebar';
@@ -8,21 +9,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#020617]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-500 text-sm">Loading CodeGuardian...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    if (typeof window !== 'undefined') router.replace('/');
-    return null;
-  }
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/');
+    }
+  }, [loading, user, router]);
 
   return (
     <div className="flex min-h-screen bg-[#020617] grid-bg">
@@ -33,3 +24,4 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
+

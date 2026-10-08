@@ -1,0 +1,1637 @@
+CODEGUARDIANMVP & Complete Build Plan
+
+Security infrastructure for AI-generated software
+
+Document type
+
+Product + Engineering Build Specification
+
+Scope
+
+MVP → production-ready developer security platform
+
+Primary users
+
+AI-assisted developers, startups, engineering teams
+
+Recommended first stack
+
+Django/DRF + PostgreSQL + Redis + worker queue + React/Next.js
+
+Core product promiseCodeGuardian scans AI-generated and AI-modified software for security weaknesses, secrets, vulnerable dependencies and dangerous patterns; explains the risk; proposes fixes; and, in later phases, verifies fixes inside an isolated sandbox before they are accepted.
+
+Table of Contents
+
+1. Product vision and problem
+
+2. MVP definition and boundaries
+
+3. Target users and core use cases
+
+4. End-to-end product workflow
+
+5. System architecture
+
+6. Technology stack
+
+7. Core services and responsibilities
+
+8. Data model and database design
+
+9. API design
+
+10. Security scanning engine
+
+11. Risk scoring and finding model
+
+12. AI explanation and remediation layer
+
+13. Sandbox and dynamic verification
+
+14. Frontend/dashboard
+
+15. GitHub/CI integration
+
+16. Authentication, authorization and tenant isolation
+
+17. Job queue, workers and caching
+
+18. Observability and auditability
+
+19. Phase-wise implementation plan
+
+20. MVP milestones and acceptance criteria
+
+21. Testing strategy
+
+22. Security model for CodeGuardian itself
+
+23. Deployment plan
+
+24. Post-MVP roadmap
+
+25. Team roles and effort estimate
+
+26. Risks and mitigations
+
+27. Demo/pitch flow
+
+28. Final build checklist
+
+1. Product Vision and Problem
+
+AI coding assistants have changed the speed at which software can be produced. The problem is that code that compiles and passes functional tests is not automatically secure. AI-generated code can contain insecure database access, weak authorization, exposed secrets, unsafe file handling, vulnerable dependencies, dangerous deserialization, command injection, SSRF, XSS and other weaknesses.
+
+CodeGuardian is intended to become a security layer between AI-assisted development and production. The first version should not attempt to replace mature security engines. Instead, it should orchestrate proven scanners, normalize their results, add application context, use an LLM for developer-friendly explanations and remediation, and produce a single actionable security report.
+
+Product positioningDo not position the MVP as “an AI that guarantees secure code.” Position it as an AI-native security orchestration and remediation platform that helps developers identify and reduce security risk in AI-generated software.
+
+The problem in one sentence
+
+Developers can generate hundreds of lines of code in minutes, but security review still requires multiple tools, manual interpretation and specialist knowledge.
+
+The proposed solution
+
+Accept source code, a repository, or a pull request as the scan target.
+
+Run static analysis, secret scanning and dependency/SCA checks.
+
+Normalize results into a common finding model.
+
+Calculate severity and an overall repository risk score.
+
+Use an LLM to explain findings in plain engineering language and propose a patch.
+
+Show exact file, line, vulnerability class, evidence, impact and remediation.
+
+Later: apply fixes in an isolated workspace, run tests, rescan, and create a verified patch/PR.
+
+2. MVP Definition and Boundaries
+
+MVP objective
+
+The MVP must prove one complete loop: a developer submits a repository → CodeGuardian analyzes it → findings are stored → the dashboard explains the risk → the developer can inspect a finding and receive a contextual remediation suggestion.
+
+MVP features — must have
+
+Capability
+
+MVP
+
+Notes
+
+Capability
+
+MVP
+
+Description
+
+Project/repository registration
+
+YES
+
+User creates a project and connects or uploads a repository.
+
+Authentication
+
+YES
+
+Email/password or GitHub OAuth; JWT/session-based API authentication.
+
+Scan creation
+
+YES
+
+Manual scan from dashboard and API endpoint.
+
+Repository ingestion
+
+YES
+
+Clone/read an accessible repository into an isolated workspace.
+
+SAST
+
+YES
+
+Run a mature static-analysis engine such as Semgrep or an equivalent engine.
+
+Secret scanning
+
+YES
+
+Run Gitleaks or equivalent.
+
+Dependency scanning
+
+YES
+
+Identify Python/Node dependencies and query a vulnerability source such as OSV.
+
+Finding normalization
+
+YES
+
+Convert tool-specific output into one internal Finding model.
+
+Risk scoring
+
+YES
+
+Compute finding severity and project-level risk score.
+
+Dashboard
+
+YES
+
+Projects, scan history, findings, severity counts and scan status.
+
+Finding details
+
+YES
+
+File, line, code context, reason, impact, remediation and scanner evidence.
+
+AI explanation
+
+YES
+
+Generate contextual explanation and suggested remediation.
+
+Export
+
+YES
+
+JSON and/or PDF security report.
+
+Explicitly out of MVP
+
+Full autonomous code-fixing agent that edits arbitrary repositories.
+
+Real-world exploit generation against external applications.
+
+Guaranteed vulnerability detection.
+
+Complex Kubernetes runtime protection.
+
+Enterprise SSO/SAML and advanced RBAC.
+
+Multi-language perfect semantic analysis.
+
+Production-scale distributed sandbox orchestration.
+
+Automatic merge of AI-generated fixes without human review.
+
+3. Target Users and Core Use Cases
+
+User
+
+Need
+
+Primary workflow
+
+Student / individual developer
+
+Scans a Django/FastAPI/Node project before publishing it.
+
+Manual scan + report
+
+AI-assisted developer
+
+Checks code generated by Cursor/Claude/Copilot/ChatGPT workflows.
+
+Upload/scan + AI explanation
+
+Startup engineering team
+
+Adds security checks to pull requests.
+
+GitHub integration
+
+Backend engineer
+
+Finds authorization, injection, secrets and dependency problems.
+
+Finding details + remediation
+
+Security reviewer
+
+Needs centralized evidence and scan history.
+
+Dashboard + reports
+
+Primary user journey
+
+Sign in.
+
+Create a project.
+
+Connect a Git repository or upload a source archive.
+
+Start a scan.
+
+Worker creates an isolated scan workspace.
+
+Security engines run.
+
+Raw tool results are normalized.
+
+Findings are deduplicated and scored.
+
+Dashboard shows the project risk score.
+
+User opens a critical finding.
+
+CodeGuardian shows evidence, impact and a recommended fix.
+
+User marks the finding as open, accepted risk, fixed or false positive.
+
+4. End-to-End Product Workflow
+
+Developer   |   vWeb Dashboard / GitHub Webhook / REST API   |   vDjango API   |   +--> Create Scan record   |   vRedis / Queue   |   vSecurity Worker   |   +--> Prepare isolated workspace   +--> SAST   +--> Secret scan   +--> Dependency scan   +--> Normalize findings   +--> Deduplicate   +--> Calculate risk   +--> Store results   |   vPostgreSQL   |   vDashboard   |   +--> Findings   +--> Risk score   +--> Scan history   +--> Reports   |   vAI Remediation Service   |   +--> Build bounded context   +--> Explain finding   +--> Suggest patch   +--> Return structured response
+
+Important design principle
+
+Separate detection from interpretationThe scanner should be the source of security evidence. The LLM should interpret and explain evidence, not invent vulnerabilities. Every AI response should reference a concrete finding, file and code context and should be treated as advisory until verified.
+
+5. System Architecture
+
++-----------------------+                    |      React / Next      |                    |       Dashboard        |                    +-----------+-----------+                                |                              HTTPS                                |                    +-----------v-----------+                    |       Django/DRF      |                    |       API Layer       |                    +----+----+----+--------+                         |    |    |                         |    |    +--> Auth / Projects / Reports                         |    |                         |    +-------> Scan Orchestration                         |                  +------v------+                  | Redis / Queue|                  +------+-------+                         |              +----------v-----------+              |  Scan Worker(s)      |              |----------------------|              | SAST                 |              | Secret scanner       |              | Dependency scanner   |              | Normalizer           |              | Risk scorer           |              +----------+-----------+                         |              +----------v-----------+              |    PostgreSQL        |              | Projects / Scans /   |              | Findings / Users     |              +----------------------+Optional later:GitHub App -> Webhook -> Django -> Scan Queue                         |                         +-> AI Service / LLM                         |                         +-> Sandbox / Verification
+
+Logical boundaries
+
+API service: authentication, project management, scan requests, read APIs and webhook handling.
+
+Worker service: CPU/process-heavy scanning work; never block HTTP requests with scanners.
+
+PostgreSQL: source of truth for metadata, scan state and normalized findings.
+
+Redis: queue broker, short-lived state and carefully selected caching.
+
+Object storage: raw reports, repository archives and generated artifacts in later deployments.
+
+AI service: isolated module with strict input/output schemas and token limits.
+
+Sandbox: separate trust boundary; never run untrusted repository code inside the API container.
+
+6. Technology Stack
+
+Layer
+
+Recommended technology
+
+Purpose
+
+Frontend
+
+Next.js/React + TypeScript + Tailwind
+
+Dashboard and authenticated UI
+
+Backend
+
+Django + Django REST Framework
+
+API, auth, project/scan/finding management
+
+Database
+
+PostgreSQL
+
+Persistent relational data
+
+Queue
+
+Celery + Redis
+
+Asynchronous scans and AI jobs
+
+Cache
+
+Redis/Django cache
+
+Short-lived scan/status/cache data
+
+SAST
+
+Semgrep or equivalent
+
+Static security analysis
+
+Secrets
+
+Gitleaks or equivalent
+
+Credential/secret detection
+
+SCA
+
+OSV + ecosystem package tooling
+
+Dependency vulnerability detection
+
+AI
+
+Provider abstraction supporting local Ollama and hosted APIs
+
+Explanation/remediation
+
+Containerization
+
+Docker
+
+Reproducible API/worker/scanner environments
+
+CI
+
+GitHub Actions
+
+Tests, linting and deployment
+
+Web server
+
+Nginx/Caddy + Gunicorn/Uvicorn as appropriate
+
+Production serving
+
+Monitoring
+
+Structured logs + Sentry/OpenTelemetry later
+
+Errors and operational visibility
+
+Practical recommendation for your backgroundUse Django/DRF for the core platform because it aligns with your backend skill set. Use Celery + Redis for scans. Keep scanner execution behind a service/worker boundary so the architecture remains production-oriented.
+
+7. Core Services and Responsibilities
+
+Service
+
+Responsibility
+
+Identity Service
+
+Users, sessions/JWT, OAuth, organization membership.
+
+Project Service
+
+Projects, repository metadata, default scan policy.
+
+Repository Service
+
+Clone/upload/read repository into temporary workspace.
+
+Scan Orchestrator
+
+Creates scan jobs and tracks lifecycle.
+
+Scanner Runner
+
+Executes SAST, secret and dependency scanners.
+
+Finding Normalizer
+
+Converts heterogeneous scanner output to a common schema.
+
+Risk Engine
+
+Severity, confidence, exploitability/context adjustments and project score.
+
+AI Remediation Service
+
+Explanation and suggested fix from bounded evidence.
+
+Report Service
+
+JSON/PDF/HTML report generation.
+
+Webhook Service
+
+GitHub events and PR-triggered scans.
+
+8. Data Model and Database Design
+
+Entity
+
+Important fields
+
+User
+
+id, email, password hash/OAuth identity, created_at
+
+Organization
+
+id, name, owner_id, created_at
+
+Membership
+
+organization_id, user_id, role
+
+Project
+
+id, organization_id, name, repo_url, default_branch, language, created_at
+
+RepositoryCredential
+
+id, project_id, provider, encrypted token reference
+
+Scan
+
+id, project_id, commit_sha, status, started_at, completed_at, risk_score
+
+ScanJob
+
+id, scan_id, task_id, worker_status, retry_count
+
+Finding
+
+id, scan_id, fingerprint, rule_id, severity, confidence, status
+
+FindingLocation
+
+finding_id, file_path, line_start, line_end, code_context
+
+FindingEvidence
+
+finding_id, scanner, raw_output/reference, normalized evidence
+
+Dependency
+
+scan_id, ecosystem, name, version, manifest_path
+
+DependencyVulnerability
+
+dependency_id, vulnerability_id, severity, fixed_version
+
+AIAnalysis
+
+finding_id, model, prompt_version, explanation, remediation, created_at
+
+Report
+
+scan_id, format, artifact_location, created_at
+
+AuditLog
+
+organization_id, actor_id, action, target_type, target_id, metadata
+
+Finding status lifecycle
+
+OPEN  |  +--> FALSE_POSITIVE  |  +--> ACCEPTED_RISK  |  +--> FIX_IN_PROGRESS  |  +--> FIXED  |  +--> REOPENED
+
+Finding fingerprint
+
+Use a stable fingerprint so the same issue can be tracked across scans. A practical first implementation can hash normalized rule ID + repository-relative file path + normalized line/range + relevant code identity. Avoid relying only on line numbers because lines move between commits.
+
+9. API Design
+
+Method
+
+Endpoint
+
+Purpose
+
+POST
+
+/api/v1/auth/login/
+
+Authenticate user
+
+POST
+
+/api/v1/projects/
+
+Create project
+
+GET
+
+/api/v1/projects/
+
+List projects
+
+GET
+
+/api/v1/projects/{id}/
+
+Project details
+
+POST
+
+/api/v1/projects/{id}/scans/
+
+Start scan
+
+GET
+
+/api/v1/scans/{id}/
+
+Scan status
+
+GET
+
+/api/v1/scans/{id}/findings/
+
+List findings
+
+GET
+
+/api/v1/findings/{id}/
+
+Finding details
+
+POST
+
+/api/v1/findings/{id}/ai-analysis/
+
+Generate AI explanation
+
+PATCH
+
+/api/v1/findings/{id}/
+
+Change finding status
+
+GET
+
+/api/v1/scans/{id}/report/
+
+Get report metadata
+
+POST
+
+/api/v1/webhooks/github/
+
+Receive GitHub event
+
+Scan creation example
+
+POST /api/v1/projects/42/scans/{  "source": "github",  "ref": "main",  "commit_sha": "abc123...",  "profile": "standard"}Response:{  "id": 981,  "status": "queued"}
+
+Recommended scan state machine
+
+QUEUED -> PREPARING -> SCANNING -> NORMALIZING        -> SCORING -> COMPLETEDFailure paths:QUEUED/PREPARING/SCANNING/NORMALIZING/SCORING        -> FAILEDCancellation:QUEUED/PREPARING/SCANNING -> CANCELLED
+
+10. Security Scanning Engine
+
+Layer A — SAST
+
+Run a mature static-analysis engine. Do not build your own parser/rule engine for the MVP. The value of CodeGuardian is orchestration, context, normalization, risk prioritization and remediation.
+
+Configure language-specific rules for Python, JavaScript/TypeScript and common web frameworks.
+
+Capture rule ID, severity, file, lines, message, evidence and scanner version.
+
+Store raw scanner output separately from normalized findings.
+
+Allow scan profiles: quick, standard and deep.
+
+Layer B — Secret scanning
+
+Scan source files and relevant history only when explicitly enabled; history scanning can be expensive.
+
+Never store the full secret in plaintext in PostgreSQL.
+
+Redact secrets before logs and AI prompts.
+
+Recommend credential rotation when a real credential is detected.
+
+Layer C — Dependency/SCA
+
+Detect manifest files such as requirements.txt, pyproject.toml, package.json and lock files.
+
+Resolve package names and versions.
+
+Map known advisories to dependencies.
+
+Report vulnerable version, advisory identifier, severity and fixed version when available.
+
+Flag obvious dependency confusion/typosquatting indicators as a later enhancement.
+
+Scanner adapter interface
+
+class ScannerAdapter(Protocol):    name: str    def scan(self, workspace: Path, config: ScanConfig) -> ScannerResult:        ...class ScannerResult:    scanner_name: str    scanner_version: str    raw_output: dict    findings: list[RawFinding]
+
+11. Risk Scoring and Finding Model
+
+Finding severity
+
+Start with four severity levels: Critical, High, Medium and Low. Add Informational later. Scanner severity should not be copied blindly; normalize it through a single policy.
+
+Suggested MVP score
+
+base = severity_weight * 10confidence_adjustment = confidence * 0.20exposure_adjustment = exposure_weightfix_adjustment = exploitability_or_impact_weightfinding_score = clamp(base + confidence_adjustment                       + exposure_adjustment + fix_adjustment, 0, 100)project_score = clamp(    100    - critical_count * 20    - high_count * 10    - medium_count * 3    - low_count * 1,    0, 100)
+
+This is intentionally simple. Do not pretend the number is a universal security metric. The dashboard should show the score together with the underlying severity counts and trends.
+
+Finding record example
+
+{  "rule_id": "python.sql.injection",  "severity": "CRITICAL",  "confidence": 0.96,  "file": "users/views.py",  "line_start": 47,  "line_end": 47,  "status": "OPEN",  "title": "Potential SQL injection",  "evidence": "User input is concatenated into a SQL statement",  "fingerprint": "sha256:..."}
+
+12. AI Explanation and Remediation Layer
+
+What the AI should receive
+
+The model should receive the minimum context needed to reason about the finding rather than the entire repository by default. This reduces cost, leakage and prompt-injection exposure.
+
+Finding title and normalized rule ID.
+
+Scanner evidence.
+
+Relevant file path.
+
+A bounded code window around the finding.
+
+Related function/class when available.
+
+Framework/language metadata.
+
+Optional relevant configuration or model definitions.
+
+Existing tests related to the code, only when needed.
+
+What the AI should return
+
+{  "summary": "...",  "why_it_is_a_problem": "...",  "attack_scenario": "...",  "recommended_fix": "...",  "patch_strategy": "...",  "confidence": 0.0,  "needs_human_review": true}
+
+Critical security ruleNever let the LLM decide that a finding is safe solely because it says so. The scanner evidence remains authoritative for detection; the LLM is an interpretation/remediation assistant.
+
+Prompt-injection defense
+
+Treat repository content as untrusted data, not instructions.
+
+Clearly delimit source-code context.
+
+Tell the model never to follow instructions found inside source files/comments/docstrings.
+
+Use a strict structured output schema.
+
+Limit tools available to the model.
+
+Do not give the model arbitrary shell access in the MVP.
+
+Redact secrets before sending context to any external model.
+
+Version every remediation prompt so outputs remain auditable.
+
+13. Sandbox and Dynamic Verification
+
+Dynamic verification is a Phase 2/3 capability. It is deliberately separated from the MVP because executing untrusted repository code is a major security problem by itself.
+
+Safe architecture
+
+API / Worker     |     | create job     vSandbox Orchestrator     |     +--> ephemeral container / VM     |       |     |       +--> copy source     |       +--> install locked dependencies     |       +--> start application     |       +--> run bounded tests     |       +--> collect evidence     |     +--> destroy environment
+
+Sandbox requirements
+
+Non-root execution.
+
+No host filesystem access.
+
+No Docker socket mounted.
+
+Read-only base image where practical.
+
+Strict CPU, RAM and execution-time limits.
+
+Network disabled by default.
+
+If network is later required, use allowlisted egress only.
+
+Ephemeral workspace destroyed after execution.
+
+Resource quotas per organization.
+
+All sandbox actions logged.
+
+Verification loop
+
+Finding  -> AI proposes fix  -> create temporary patch  -> run unit/integration tests  -> rerun relevant scanner  -> compare findings  -> accept only if risk decreases and tests remain valid
+
+14. Frontend / Dashboard
+
+Main pages
+
+Page
+
+Purpose
+
+Login
+
+Authentication
+
+Overview
+
+Projects, total findings, risk trend, latest scans
+
+Projects
+
+Project list and repository configuration
+
+Project Detail
+
+Risk score, severity distribution, scan history
+
+Scan Detail
+
+Progress, scanner stages, findings
+
+Findings
+
+Filter by severity/status/rule/file
+
+Finding Detail
+
+Code context, evidence, explanation, remediation
+
+Reports
+
+Export/download scan reports
+
+Settings
+
+Provider/repository and security policy configuration
+
+Finding detail UI
+
+Severity badge.
+
+Rule and vulnerability category.
+
+Confidence.
+
+File path + line number.
+
+Code snippet with highlighted location.
+
+Why this is dangerous.
+
+Potential impact.
+
+How an attacker could abuse it, using safe non-operational language.
+
+Recommended remediation.
+
+AI analysis.
+
+Status controls: Open / Fixed / False Positive / Accepted Risk.
+
+Scanner evidence and scanner version.
+
+Scan/commit metadata.
+
+15. GitHub / CI Integration
+
+Phase 1
+
+Manual repository scan from the dashboard.
+
+Phase 2
+
+GitHub App or webhook integration.
+
+Pull Request opened / synchronized             |             v        GitHub webhook             |             v        Django endpoint             |             v        Create scan             |             v          Celery             |             v      Security analysis             |             v      GitHub PR status/check
+
+PR policy
+
+Pass when no Critical/High findings exist.
+
+Warn when Medium findings exist.
+
+Fail when a policy threshold is exceeded.
+
+Allow organization-specific thresholds later.
+
+Never block a PR because an AI explanation failed; the scanner result should determine the security gate.
+
+16. Authentication, Authorization and Tenant Isolation
+
+Authentication
+
+Use secure session authentication or JWT for API clients.
+
+Use OAuth/GitHub login when repository integration is introduced.
+
+Hash passwords using Django's secure password hashing.
+
+Add email verification and password reset before public launch.
+
+Use short-lived access tokens if JWT is chosen, with refresh-token rotation.
+
+Authorization
+
+Every Project belongs to an Organization.
+
+Every API query must enforce organization/project ownership.
+
+Do not rely on frontend filtering for access control.
+
+Use roles such as Owner, Admin, Developer and Viewer later.
+
+Repository credentials must never be returned to the frontend.
+
+Tenant isolation
+
+A user from Organization A must never be able to retrieve Organization B's projects, scans, findings, reports or repository credentials by changing an ID in the URL. Every query path must enforce tenant scope.
+
+17. Job Queue, Workers and Caching
+
+Why Celery
+
+Scans are long-running and CPU/process heavy. An HTTP request should create a Scan record and enqueue work, then return immediately.
+
+POST /scans/     |     +--> Scan(status="QUEUED")     |     +--> celery.delay(run_scan, scan_id)     |     +--> HTTP 202
+
+Recommended queues
+
+Queue
+
+Work
+
+scan
+
+SAST/secret/dependency scans
+
+ai
+
+AI explanation/remediation
+
+report
+
+PDF/HTML/JSON report generation
+
+webhook
+
+GitHub event processing
+
+Caching
+
+Cache dashboard aggregates for short TTLs if needed.
+
+Cache scanner metadata carefully; never cache sensitive repository content in shared keys.
+
+Use deterministic cache keys containing organization/project/commit where applicable.
+
+Invalidate project-level aggregates when a scan completes.
+
+18. Observability and Auditability
+
+Structured logging
+
+request_id
+
+organization_id
+
+project_id
+
+scan_id
+
+task_id
+
+scanner
+
+duration_ms
+
+status
+
+error_type
+
+Metrics
+
+scans_started_total
+
+scans_completed_total
+
+scans_failed_total
+
+scan_duration_seconds
+
+findings_total by severity
+
+ai_requests_total
+
+ai_latency_seconds
+
+sandbox_failures_total
+
+queue_depth
+
+worker_error_rate
+
+Audit events
+
+Project created/deleted.
+
+Repository connected/disconnected.
+
+Scan started/completed.
+
+Finding status changed.
+
+Risk accepted.
+
+AI analysis requested.
+
+Report generated.
+
+Security policy changed.
+
+19. Phase-Wise Implementation Plan
+
+Phase 0 — Product foundation — 1–2 days
+
+Finalize MVP scope and security assumptions.
+
+Create GitHub repository and branch strategy.
+
+Create architecture decision record.
+
+Define API version /api/v1/.
+
+Define database schema and finding JSON contract.
+
+Create local Docker Compose for PostgreSQL + Redis.
+
+Phase 1 — Django platform — 3–5 days
+
+Create Django/DRF project.
+
+Configure PostgreSQL.
+
+Implement User/Organization/Project models.
+
+Implement authentication.
+
+Build project CRUD APIs.
+
+Add API permissions and tenant isolation tests.
+
+Add OpenAPI/schema documentation.
+
+Phase 2 — Scan orchestration — 3–4 days
+
+Add Celery + Redis.
+
+Create Scan and ScanJob models.
+
+Implement scan state machine.
+
+Build repository workspace manager.
+
+Add retries, timeouts and failure handling.
+
+Expose scan status APIs.
+
+Phase 3 — Security engines — 5–7 days
+
+Integrate SAST engine.
+
+Integrate secret scanner.
+
+Integrate dependency scanner.
+
+Create scanner adapter interfaces.
+
+Store raw reports safely.
+
+Build result normalization.
+
+Implement finding fingerprinting and deduplication.
+
+Phase 4 — Risk engine — 2–3 days
+
+Normalize severity.
+
+Implement confidence.
+
+Implement project risk score.
+
+Add severity filters.
+
+Add scan-to-scan trend calculation.
+
+Phase 5 — Dashboard — 5–7 days
+
+Build login.
+
+Build project list/detail.
+
+Build scan progress.
+
+Build findings table.
+
+Build finding detail with code context.
+
+Build report page.
+
+Phase 6 — AI remediation — 3–5 days
+
+Create AI provider interface.
+
+Implement bounded context builder.
+
+Redact secrets.
+
+Create structured remediation schema.
+
+Add prompt versioning.
+
+Store AI analysis and model metadata.
+
+Add human-review indicator.
+
+Phase 7 — Reporting — 2–3 days
+
+Generate JSON report.
+
+Generate HTML/PDF report.
+
+Add executive summary.
+
+Add detailed findings.
+
+Add remediation section.
+
+Phase 8 — GitHub integration — 4–6 days
+
+Create GitHub App/webhook integration.
+
+Receive PR events.
+
+Create scan automatically.
+
+Publish status/check result.
+
+Add configurable fail/warn policy.
+
+Phase 9 — Verification sandbox — 7–14 days
+
+Design sandbox boundary.
+
+Build ephemeral runner.
+
+Apply strict resource limits.
+
+Run tests in isolation.
+
+Rescan after proposed patch.
+
+Implement verification result.
+
+Phase 10 — Hardening and beta — 5–7 days
+
+Threat model the platform.
+
+Pen-test API and tenant isolation.
+
+Test malicious repositories.
+
+Add rate limiting.
+
+Add monitoring and alerting.
+
+Deploy staging.
+
+Invite first beta users.
+
+20. MVP Milestones and Acceptance Criteria
+
+Milestone
+
+Goal
+
+Acceptance criterion
+
+M1
+
+Platform works
+
+A user can sign in, create a project and initiate a scan.
+
+M2
+
+Scanner works
+
+A repository can be scanned asynchronously and scan failures are recoverable.
+
+M3
+
+Findings work
+
+SAST/secrets/dependencies appear as normalized findings.
+
+M4
+
+Risk works
+
+Dashboard shows severity counts and a reproducible risk score.
+
+M5
+
+Developer UX works
+
+A developer can open a finding and understand what to fix.
+
+M6
+
+AI layer works
+
+AI produces structured explanation/remediation from bounded evidence.
+
+M7
+
+Reporting works
+
+A scan report can be exported.
+
+M8
+
+CI works
+
+A GitHub PR can trigger a scan and receive a pass/fail result.
+
+MVP is complete whenA real Django or Node repository can be scanned end-to-end without manual intervention, findings are persisted and displayed, the risk score is reproducible, and a developer receives useful remediation guidance.
+
+21. Testing Strategy
+
+Unit tests
+
+Finding normalization.
+
+Severity mapping.
+
+Fingerprint generation.
+
+Risk score calculation.
+
+Permission checks.
+
+Scan state transitions.
+
+Repository path validation.
+
+AI response schema validation.
+
+Integration tests
+
+API → PostgreSQL.
+
+API → Celery → worker.
+
+Worker → scanner adapter.
+
+Worker → finding persistence.
+
+AI service → stored analysis.
+
+GitHub webhook → scan creation.
+
+Security tests
+
+IDOR/tenant isolation.
+
+JWT/session abuse.
+
+Malicious repository paths.
+
+Zip-slip/path traversal during archive extraction.
+
+Oversized repository upload.
+
+Malicious dependency manifest.
+
+Secret leakage in logs.
+
+Prompt-injection content inside source files.
+
+SSRF through repository URLs.
+
+Webhook signature validation.
+
+Rate-limit bypass attempts.
+
+End-to-end golden repositories
+
+Create small intentionally vulnerable repositories containing known examples. Each release of CodeGuardian should scan these repositories and compare results against expected findings. This becomes the regression suite.
+
+22. Security Model for CodeGuardian Itself
+
+Most important architectural ruleCodeGuardian processes untrusted code. Therefore the platform itself must assume every repository is hostile.
+
+Area
+
+Control
+
+Repository ingestion
+
+Validate URL/provider, prevent SSRF, enforce allowlists and timeouts.
+
+Archive extraction
+
+Prevent zip-slip/path traversal; enforce file count and size limits.
+
+Scanner execution
+
+Use isolated workers/containers; never run repository commands inside the API process.
+
+Secrets
+
+Encrypt credentials; redact scanner output and logs.
+
+AI prompts
+
+Treat repository text as untrusted input; prevent instruction following from source files.
+
+Database
+
+Strict tenant scoping and parameterized ORM/database access.
+
+Webhooks
+
+Verify GitHub signatures and reject unsigned requests.
+
+Uploads
+
+Limit size, MIME/type and extraction resources.
+
+DoS
+
+Rate-limit scans and enforce quotas.
+
+Logs
+
+Never log tokens, passwords, private keys or full source code.
+
+Reports
+
+Access-control report artifacts and use short-lived signed URLs later.
+
+23. Deployment Plan
+
+Local development
+
+docker compose up  |  +-- postgres  +-- redis  +-- django-api  +-- celery-worker  +-- frontend
+
+Staging
+
+Managed PostgreSQL.
+
+Managed Redis.
+
+API container.
+
+Dedicated worker container(s).
+
+Frontend deployment.
+
+Object storage for reports.
+
+HTTPS.
+
+Centralized logs.
+
+Production evolution
+
+Separate API and worker scaling.
+
+Dedicated scan worker pool.
+
+Dedicated sandbox worker pool.
+
+Object storage instead of database blobs for large artifacts.
+
+Secrets manager instead of environment files.
+
+Database backups and restore drills.
+
+Rate limiting at the edge.
+
+Monitoring/alerting.
+
+Per-organization quotas.
+
+24. Post-MVP Roadmap
+
+Roadmap
+
+Capability
+
+R1
+
+GitHub App + PR security gates
+
+R2
+
+AI patch generation with verification
+
+R3
+
+Ephemeral sandbox and dynamic application testing
+
+R4
+
+More languages: Java, Go, Java/Kotlin, PHP, C#
+
+R5
+
+IDE extension for VS Code/JetBrains
+
+R6
+
+AI coding-agent integration hooks
+
+R7
+
+Custom organization security policies
+
+R8
+
+SBOM generation and software supply-chain dashboard
+
+R9
+
+Dependency reachability/context analysis
+
+R10
+
+Runtime/cloud configuration security
+
+R11
+
+Enterprise SSO, RBAC and audit exports
+
+R12
+
+Self-hosted enterprise edition
+
+Potential moat
+
+Historical security context for AI-generated code changes.
+
+Verified remediation rather than text-only AI suggestions.
+
+Organization-specific policies and security knowledge.
+
+High-quality normalized security dataset from scan/remediation outcomes.
+
+Deep integrations into AI coding workflows and CI/CD.
+
+25. Team Roles and Effort Estimate
+
+Role
+
+Responsibilities
+
+Backend
+
+Django/DRF, database, Celery, scanner orchestration, APIs
+
+Frontend
+
+Dashboard, finding viewer, reports and project UX
+
+Security
+
+Rules, threat modeling, sandbox design, validation
+
+AI/ML
+
+Context builder, structured remediation, evaluation
+
+DevOps
+
+Containers, CI/CD, worker scaling, monitoring
+
+Solo-founder / student execution
+
+For one developer, target a narrow 4–6 week MVP rather than the complete platform. The first demonstrable version should scan one or two languages, use three security engines, provide a dashboard and AI explanation, and avoid autonomous patching.
+
+Suggested 6-week schedule
+
+Week
+
+Deliverables
+
+Week 1
+
+Django/DRF + PostgreSQL + auth + project/scan models + Docker
+
+Week 2
+
+Celery/Redis + repository ingestion + scan lifecycle
+
+Week 3
+
+SAST + secret + dependency adapters + normalized findings
+
+Week 4
+
+Risk engine + dashboard + finding details
+
+Week 5
+
+AI explanation + reports + GitHub integration basics
+
+Week 6
+
+Testing + security hardening + deployment + polished demo
+
+26. Risks and Mitigations
+
+Risk
+
+Mitigation
+
+False positives
+
+Use mature scanners, confidence levels, deduplication and human review.
+
+False negatives
+
+Clearly communicate coverage; combine multiple analysis layers.
+
+LLM hallucination
+
+LLM cannot create authoritative findings; require scanner evidence.
+
+Malicious repository execution
+
+Isolate workers and sandbox; no host access.
+
+Secret leakage
+
+Redaction, encryption and strict logging policies.
+
+High scanning cost
+
+Async workers, quotas, caching of safe metadata and incremental scanning later.
+
+Large repositories
+
+File/size limits, ignore rules, timeouts and incremental scans.
+
+Prompt injection
+
+Treat source as untrusted; strict system instructions and bounded context.
+
+Vendor lock-in
+
+Build scanner and AI provider adapters.
+
+Overbuilding
+
+Freeze MVP boundaries; defer autonomous fixing and advanced sandboxing.
+
+27. Demo / Pitch Flow
+
+A strong hackathon/startup demo should take 3–5 minutes and tell one continuous story.
+
+Open CodeGuardian dashboard.
+
+Create/select a deliberately vulnerable Django project.
+
+Start a scan.
+
+Show asynchronous progress: preparing → SAST → secrets → dependencies → scoring.
+
+Show risk score, e.g. 34/100, with Critical/High/Medium counts.
+
+Open a critical SQL injection or authorization finding.
+
+Show exact file/line and scanner evidence.
+
+Click “Explain with AI”.
+
+Show concise impact and remediation.
+
+Optionally demonstrate a safe patch and rescan.
+
+Show risk score improving.
+
+End with GitHub PR security gate as the production vision.
+
+Pitch line“AI made software generation fast. CodeGuardian makes shipping that software safer.”
+
+28. Final Build Checklist
+
+Architecture document committed.
+
+Django/DRF project initialized.
+
+PostgreSQL configured.
+
+Redis configured.
+
+Celery worker running.
+
+User authentication implemented.
+
+Organization/project tenant model implemented.
+
+Project CRUD APIs implemented.
+
+Scan state machine implemented.
+
+Repository ingestion hardened.
+
+SAST adapter implemented.
+
+Secret scanner adapter implemented.
+
+Dependency scanner implemented.
+
+Normalized Finding schema implemented.
+
+Finding fingerprinting implemented.
+
+Risk scoring implemented.
+
+Dashboard implemented.
+
+Finding detail page implemented.
+
+AI provider interface implemented.
+
+Secret redaction implemented before AI calls.
+
+AI response schema validation implemented.
+
+JSON/HTML/PDF report implemented.
+
+GitHub webhook signature verification implemented.
+
+Tenant isolation tests implemented.
+
+Malicious repository test suite implemented.
+
+Rate limiting/quotas implemented.
+
+Production logging and monitoring configured.
+
+Staging deployment completed.
+
+Demo repository with known vulnerabilities prepared.
+
+Final Architecture Summary
+
+CODEGUARDIAN                         |       +-----------------+------------------+       |                                    |   Developer UI                         GitHub / CI       |                                    |       +---------------+--------------------+                       |                  Django / DRF                       |             +---------+---------+             |                   |          PostgreSQL           Redis             |                   |             |                Celery             |                   |             |            +------+------+             |            |             |             |        Scan Worker    AI Worker             |            |             |             |       +----+----+        |             |       |    |    |        |             |      SAST Secrets SCA    |             |       |    |    |        |             |       +----+----+        |             |            |             |             +------------+-------------+                          |                    Findings/Risk                          |                     Dashboard                          |                  Future: Sandbox                          |                  Verify -> Rescan                          |                    Secure PR
+
+Recommended implementation order
+
+Build the platform, not the AI, first.
+
+Make scanning reliable and asynchronous.
+
+Normalize scanner output into a strong Finding model.
+
+Build the dashboard around developer decisions.
+
+Add AI only after evidence is available.
+
+Treat repository code as hostile from day one.
+
+Add GitHub CI integration before attempting autonomous patching.
+
+Build the sandbox only when the MVP is stable.
+
+Measure precision, false positives and remediation success before making security claims.
+
+Definition of successA developer should be able to give CodeGuardian a real project and, within one workflow, answer four questions: What is wrong? How serious is it? Where exactly is it? What should I do next? The later platform adds a fifth: Can the proposed fix be verified safely?

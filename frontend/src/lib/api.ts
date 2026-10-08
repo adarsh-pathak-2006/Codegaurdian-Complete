@@ -250,9 +250,10 @@ export const scansAPI = {
   report: (token: string, scanId: string) =>
     request<Report>(`/api/v1/scans/${scanId}/report/`, {}, token),
 
-  reportHtmlUrl: (scanId: string) =>
-    `${API_BASE}/api/v1/scans/${scanId}/report-html/`,
+  reportHtmlUrl: (scanId: string, token?: string | null) =>
+    `${API_BASE}/api/v1/scans/${scanId}/report-html/${token ? `?token=${encodeURIComponent(token)}` : ''}`,
 };
+
 
 // ─── Findings ─────────────────────────────────────────────────────────────────
 

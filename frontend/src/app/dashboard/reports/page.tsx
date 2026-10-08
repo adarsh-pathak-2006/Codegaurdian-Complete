@@ -96,7 +96,7 @@ export default function ReportsPage() {
                   )}
 
                   <a
-                    href={scansAPI.reportHtmlUrl(scan.id)}
+                    href={scansAPI.reportHtmlUrl(scan.id, token)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 rounded-lg transition-colors"

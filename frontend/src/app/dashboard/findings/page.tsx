@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { findingsAPI, Finding, PaginatedResponse } from '@/lib/api';
 import { severityColor, findingStatusColor, timeAgo } from '@/lib/utils';
 import {
   ShieldAlert, Search, Filter, ExternalLink,
-  Sparkles, FileCode, CheckCircle, RefreshCw
+  Sparkles, FileCode, CheckCircle, RefreshCw,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
+
+const PAGE_SIZE = 15;
 
 export default function FindingsPage() {
   const { token } = useAuth();
@@ -17,6 +20,7 @@ export default function FindingsPage() {
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchFindings = async () => {
     if (!token) return;
@@ -34,16 +38,25 @@ export default function FindingsPage() {
     fetchFindings();
   }, [token]);
 
-  const filtered = findings.filter(f => {
-    const matchesSev = severityFilter === 'ALL' || f.severity === severityFilter;
-    const matchesStatus = statusFilter === 'ALL' || f.status === statusFilter;
-    const matchesSearch =
-      f.title.toLowerCase().includes(search.toLowerCase()) ||
-      f.rule_id.toLowerCase().includes(search.toLowerCase()) ||
-      f.location?.file_path.toLowerCase().includes(search.toLowerCase()) ||
-      f.project_name?.toLowerCase().includes(search.toLowerCase());
-    return matchesSev && matchesStatus && matchesSearch;
-  });
+  const filtered = useMemo(() => {
+    return findings.filter(f => {
+      const matchesSev = severityFilter === 'ALL' || f.severity === severityFilter;
+      const matchesStatus = statusFilter === 'ALL' || f.status === statusFilter;
+      const q = search.toLowerCase().trim();
+      const matchesSearch = !q ||
+        f.title.toLowerCase().includes(q) ||
+        f.rule_id.toLowerCase().includes(q) ||
+        (f.location?.file_path.toLowerCase().includes(q) ?? false) ||
+        (f.project_name?.toLowerCase().includes(q) ?? false);
+      return matchesSev && matchesStatus && matchesSearch;
+    });
+  }, [findings, severityFilter, statusFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -52,12 +65,12 @@ export default function FindingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-100">Vulnerability Triage</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Global security findings across projects. Prioritize and remediate issues.
+            Global security findings across projects ({findings.length} total detected).
           </p>
         </div>
         <button
           onClick={() => { setLoading(true); fetchFindings(); }}
-          className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-850 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700/60 transition-colors w-fit"
+          className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700/60 transition-colors w-fit"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Refresh List
         </button>
@@ -70,7 +83,7 @@ export default function FindingsPage() {
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Search by rule ID, title, filename or project..."
             className="w-full pl-10 pr-4 py-2.5 bg-slate-900/60 border border-slate-700/50 rounded-lg text-slate-100 placeholder-slate-600 focus:outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30 text-sm transition-all"
           />
@@ -83,7 +96,7 @@ export default function FindingsPage() {
             {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(sev => (
               <button
                 key={sev}
-                onClick={() => setSeverityFilter(sev)}
+                onClick={() => { setSeverityFilter(sev); setCurrentPage(1); }}
                 className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${
                   severityFilter === sev
                     ? 'bg-violet-600 text-white'
@@ -101,7 +114,7 @@ export default function FindingsPage() {
             {['ALL', 'OPEN', 'FIX_IN_PROGRESS', 'FIXED', 'FALSE_POSITIVE'].map(st => (
               <button
                 key={st}
-                onClick={() => setStatusFilter(st)}
+                onClick={() => { setStatusFilter(st); setCurrentPage(1); }}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
                   statusFilter === st
                     ? 'bg-indigo-600 text-white'
@@ -130,7 +143,7 @@ export default function FindingsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(f => (
+          {paginated.map(f => (
             <div
               key={f.id}
               className="glass-card p-4 hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -175,6 +188,34 @@ export default function FindingsPage() {
               </div>
             </div>
           ))}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+              <span>
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} findings
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

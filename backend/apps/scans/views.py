@@ -63,6 +63,17 @@ class ScanViewSet(viewsets.ReadOnlyModelViewSet):
         report_data = generator._build_report_payload(scan)
         return Response(report_data)
 
+    def get_permissions(self):
+        if self.action == "report_html" and "token" in self.request.query_params:
+            from rest_framework.authtoken.models import Token
+            token_key = self.request.query_params.get("token")
+            try:
+                token_obj = Token.objects.select_related("user").get(key=token_key)
+                self.request.user = token_obj.user
+            except Exception:
+                pass
+        return super().get_permissions()
+
     @extend_schema(description="Download rendered HTML security audit report")
     @action(detail=True, methods=["get"], url_path="report-html")
     def report_html(self, request, pk=None):
@@ -70,4 +81,7 @@ class ScanViewSet(viewsets.ReadOnlyModelViewSet):
         generator = ReportGenerator()
         report_data = generator._build_report_payload(scan)
         html = generator._render_html(report_data)
-        return HttpResponse(html, content_type="text/html")
+        response = HttpResponse(html, content_type="text/html")
+        response["Content-Disposition"] = f'inline; filename="codeguardian-report-{scan.id}.html"'
+        return response
+

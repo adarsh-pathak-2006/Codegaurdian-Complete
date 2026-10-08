@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
@@ -8,7 +8,8 @@ import { scansAPI, findingsAPI, Scan, Finding } from '@/lib/api';
 import { riskScoreColor, statusColor, severityColor, formatDate, timeAgo } from '@/lib/utils';
 import {
   ArrowLeft, CheckCircle2, Clock, Download, ExternalLink,
-  FileCode, FileText, RefreshCw, ShieldAlert, Sparkles, AlertCircle
+  FileCode, FileText, RefreshCw, ShieldAlert, Sparkles, AlertCircle,
+  Search, ChevronLeft, ChevronRight, Folder
 } from 'lucide-react';
 
 const STAGES = [
@@ -20,6 +21,8 @@ const STAGES = [
   { key: 'score', label: '6. Risk Scoring', desc: 'CVSS calculation & report synthesis' },
 ];
 
+const PAGE_SIZE = 15;
+
 export default function ScanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token } = useAuth();
@@ -27,6 +30,8 @@ export default function ScanDetailPage() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSeverity, setActiveSeverity] = useState<string>('ALL');
+  const [findingSearch, setFindingSearch] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [generatingAiFor, setGeneratingAiFor] = useState<string | null>(null);
 
   const fetchScanData = useCallback(async () => {
@@ -69,9 +74,23 @@ export default function ScanDetailPage() {
     }
   };
 
-  const filteredFindings = findings.filter(f =>
-    activeSeverity === 'ALL' ? true : f.severity === activeSeverity
-  );
+  const filteredFindings = useMemo(() => {
+    return findings.filter(f => {
+      const matchesSev = activeSeverity === 'ALL' ? true : f.severity === activeSeverity;
+      const q = findingSearch.toLowerCase().trim();
+      const matchesSearch = !q ||
+        f.title.toLowerCase().includes(q) ||
+        f.rule_id.toLowerCase().includes(q) ||
+        (f.location?.file_path.toLowerCase().includes(q) ?? false);
+      return matchesSev && matchesSearch;
+    });
+  }, [findings, activeSeverity, findingSearch]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredFindings.length / PAGE_SIZE));
+  const paginatedFindings = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredFindings.slice(start, start + PAGE_SIZE);
+  }, [filteredFindings, currentPage]);
 
   const isScanning = scan && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(scan.status);
 
@@ -99,9 +118,15 @@ export default function ScanDetailPage() {
       {/* Top Breadcrumb & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <Link href="/dashboard/scans" className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mb-2">
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Scans
-          </Link>
+          <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
+            <Link href="/dashboard/scans" className="hover:text-slate-300 transition-colors flex items-center gap-1">
+              <ArrowLeft className="w-3.5 h-3.5" /> Scans
+            </Link>
+            <span>/</span>
+            <Link href={`/dashboard/projects/${scan.project}`} className="hover:text-violet-400 transition-colors flex items-center gap-1">
+              <Folder className="w-3 h-3" /> {scan.project_name}
+            </Link>
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-slate-100">{scan.project_name}</h1>
             <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${statusColor(scan.status)}`}>
@@ -127,7 +152,7 @@ export default function ScanDetailPage() {
           </button>
           {scan.status === 'COMPLETED' && (
             <a
-              href={scansAPI.reportHtmlUrl(scan.id)}
+              href={scansAPI.reportHtmlUrl(scan.id, token)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 text-xs font-semibold rounded-lg transition-colors"
@@ -207,11 +232,13 @@ export default function ScanDetailPage() {
       </div>
 
       {/* Findings Section */}
-      <div className="glass-card p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+      <div className="glass-card p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-slate-100">Discovered Vulnerabilities & Findings</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{findings.length} total findings identified across all engines</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Showing {filteredFindings.length} of {findings.length} findings
+            </p>
           </div>
 
           {/* Severity Filter Tabs */}
@@ -219,7 +246,7 @@ export default function ScanDetailPage() {
             {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(sev => (
               <button
                 key={sev}
-                onClick={() => setActiveSeverity(sev)}
+                onClick={() => { setActiveSeverity(sev); setCurrentPage(1); }}
                 className={`px-2.5 py-1 rounded font-medium transition-all ${
                   activeSeverity === sev
                     ? 'bg-violet-600 text-white shadow-sm'
@@ -232,15 +259,27 @@ export default function ScanDetailPage() {
           </div>
         </div>
 
+        {/* Search Input for Findings */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+          <input
+            type="text"
+            value={findingSearch}
+            onChange={e => { setFindingSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Search by title, rule ID (e.g. python.security), or file path..."
+            className="w-full pl-9 pr-4 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-100 placeholder-slate-600 text-xs focus:outline-none focus:border-violet-500 transition-colors"
+          />
+        </div>
+
         {filteredFindings.length === 0 ? (
           <div className="py-12 text-center text-slate-500">
             <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-500/50" />
             <p className="text-sm font-medium text-slate-400">No findings matching active filter</p>
-            <p className="text-xs text-slate-600">Great job! No vulnerabilities were flagged in this view.</p>
+            <p className="text-xs text-slate-600">No vulnerabilities match the criteria.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredFindings.map(finding => {
+            {paginatedFindings.map(finding => {
               const hasAi = !!finding.ai_analysis;
               const isAiLoading = generatingAiFor === finding.id;
 
@@ -289,8 +328,8 @@ export default function ScanDetailPage() {
                   {finding.location && (
                     <div className="text-xs text-slate-500 flex items-center gap-2 bg-slate-950/60 px-3 py-1.5 rounded-md font-mono border border-slate-900">
                       <FileCode className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <span className="text-slate-300">{finding.location.file_path}</span>
-                      <span className="text-slate-500">lines {finding.location.line_start}-{finding.location.line_end}</span>
+                      <span className="text-slate-300 truncate">{finding.location.file_path}</span>
+                      <span className="text-slate-500 flex-shrink-0">lines {finding.location.line_start}-{finding.location.line_end}</span>
                     </div>
                   )}
 
@@ -312,6 +351,34 @@ export default function ScanDetailPage() {
                 </div>
               );
             })}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="px-2">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 disabled:opacity-40 border border-slate-800 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsAPI, scansAPI, Project, Scan, PaginatedResponse } from '@/lib/api';
@@ -13,6 +13,7 @@ import {
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { token } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
@@ -38,12 +39,16 @@ export default function ProjectDetailPage() {
     if (!token || !project) return;
     setScanning(true);
     try {
-      await projectsAPI.startScan(token, project.id, {
+      const res = await projectsAPI.startScan(token, project.id, {
         source: 'manual',
         ref: project.default_branch,
         profile: project.scan_profile,
       });
-      await fetchData();
+      if (res && res.id) {
+        router.push(`/dashboard/scans/${res.id}`);
+      } else {
+        await fetchData();
+      }
     } finally {
       setScanning(false);
     }

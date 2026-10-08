@@ -26,6 +26,7 @@ export default function FindingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [generatingAi, setGeneratingAi] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statusSaved, setStatusSaved] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [statusReason, setStatusReason] = useState('');
   const [copied, setCopied] = useState(false);
@@ -52,9 +53,12 @@ export default function FindingDetailPage() {
     e.preventDefault();
     if (!token || !id) return;
     setUpdatingStatus(true);
+    setStatusSaved(false);
     try {
       await findingsAPI.updateStatus(token, id, selectedStatus, statusReason);
       await fetchFinding();
+      setStatusSaved(true);
+      setTimeout(() => setStatusSaved(false), 3000);
     } finally {
       setUpdatingStatus(false);
     }
@@ -101,12 +105,24 @@ export default function FindingDetailPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Navigation */}
       <div>
-        <Link
-          href={`/dashboard/scans/${finding.scan}`}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mb-3"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Scan Results
-        </Link>
+        <div className="flex items-center gap-2 text-xs text-slate-500 mb-3 flex-wrap">
+          <Link
+            href="/dashboard/findings"
+            className="flex items-center gap-1 hover:text-slate-300 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> All Findings
+          </Link>
+          <span>/</span>
+          <Link
+            href={`/dashboard/scans/${finding.scan}`}
+            className="hover:text-violet-400 transition-colors"
+          >
+            Scan Results
+          </Link>
+          <span>/</span>
+          <span className="text-slate-400 font-mono truncate max-w-xs">{finding.rule_id}</span>
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className={`text-xs px-2.5 py-0.5 rounded-full border font-bold ${severityColor(finding.severity)}`}>
@@ -268,13 +284,20 @@ export default function FindingDetailPage() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={updatingStatus}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
-          >
-            {updatingStatus ? 'Updating...' : 'Save Triage State'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={updatingStatus}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+            >
+              {updatingStatus ? 'Updating...' : 'Save Triage State'}
+            </button>
+            {statusSaved && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
+                <CheckCircle className="w-3.5 h-3.5" /> State saved successfully!
+              </span>
+            )}
+          </div>
         </form>
       </div>
     </div>

@@ -71,33 +71,38 @@ export default function Sidebar() {
         </nav>
 
         {/* User Profile */}
-        <div className="p-2 border-t border-slate-800/60">
+        <div className="p-3 pb-8 border-t border-slate-800/80 bg-slate-950/40">
           <div className="relative">
             <button
               onClick={() => setProfileOpen(p => !p)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 text-left transition-colors"
+              className="w-full flex items-center gap-2.5 p-2 rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-800/60 text-left transition-colors"
             >
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center flex-shrink-0 text-white text-xs font-bold shadow-sm">
                 {user?.email?.charAt(0).toUpperCase() || 'U'}
               </div>
               {!collapsed && (
                 <>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-200 truncate font-medium">{user?.first_name || user?.email?.split('@')[0]}</p>
-                    <p className="text-xs text-slate-500 truncate">{user?.organizations?.[0]?.name || 'Organization'}</p>
+                    <p className="text-xs text-slate-100 truncate font-semibold">
+                      {user?.first_name || user?.email?.split('@')[0]}
+                    </p>
+                    <p className="text-[10px] text-slate-500 truncate flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                      {user?.organizations?.[0]?.name || 'Organization'}
+                    </p>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                 </>
               )}
             </button>
 
             {profileOpen && !collapsed && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 glass-card border border-slate-700/50 p-1 z-50">
+              <div className="absolute bottom-full left-0 right-0 mb-2 glass-card border border-slate-700/60 p-1.5 shadow-xl z-50">
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                 >
-                  <LogOut className="w-4 h-4" /> Sign Out
+                  <LogOut className="w-3.5 h-3.5" /> Sign Out
                 </button>
               </div>
             )}
